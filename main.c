@@ -28,13 +28,6 @@ struct Face {
 };
 
 typedef struct {
-    int n_vertices;
-    int n_faces;
-    Vertex *vertices;
-    Face *faces;
-} Mesh;
-
-typedef struct {
     int u, v;
     HalfEdge *edge;
 } EdgeRecord;
@@ -198,9 +191,9 @@ const char *check_face_intersections(Coord *vertices, RawFace *faces, int n_face
                     // Ignora segmentos que compartilham vértices
                     if (a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2) continue;
 
-                    int zz = segments_intersect(vertices[a1], vertices[a2], vertices[b1], vertices[b2]);
+                    int intersect = segments_intersect(vertices[a1], vertices[a2], vertices[b1], vertices[b2]);
                     
-                    if (zz) {
+                    if (intersect) {
                         // printf("Segmento 1:(%d,%d) (%d,%d)  Segmento 2:(%d,%d) (%d,%d)",  vertices[a1].x, vertices[a1].y, vertices[a2].x, vertices[a2].y, vertices[b1].x, vertices[b1].y, vertices[b2].x, vertices[b2].y );
                         // printf("%d\n", zz);
                         return "superposta";
@@ -210,7 +203,7 @@ const char *check_face_intersections(Coord *vertices, RawFace *faces, int n_face
         }
     }
 
-    return NULL; // sem interseções
+    return NULL;
 }
 
 void print_vertices(Vertex *vertices, int n) {
@@ -361,7 +354,7 @@ void print_dcel_output(Vertex *vertices, int n_vertices,
 
     // Imprime vértices
     for (int i = 0; i < n_vertices; ++i) {
-        int he_id = vertices[i].incident_edge ? vertices[i].incident_edge->id : -1;
+        int he_id = vertices[i].incident_edge->id;
         printf("%d %d %d\n", vertices[i].x, vertices[i].y, he_id);
     }
 
@@ -374,10 +367,10 @@ void print_dcel_output(Vertex *vertices, int n_vertices,
     for (int i = 0; i < edge_count; ++i) {
         HalfEdge *he = edges[i];
         int origin_id = he->origin->id + 1;
-        int twin_id = he->twin ? he->twin->id : -1;
-        int face_id = he->face ? he->face->id : -1;
-        int next_id = he->next ? he->next->id : -1;
-        int prev_id = he->prev ? he->prev->id : -1;
+        int twin_id = he->twin->id;
+        int face_id = he->face->id;
+        int next_id = he->next->id;
+        int prev_id = he->prev->id;
         printf("%d %d %d %d %d\n", origin_id, twin_id, face_id, next_id, prev_id);
     }
 }
@@ -400,7 +393,6 @@ int main() {
         vertices[i].incident_edge = NULL;
     }
 
-    // Verificação topológica 1: contagem de arestas
     const char *erro_topo = check_edge_counts(raw_faces, n_faces);
     if (erro_topo) {
         printf("%s\n", erro_topo);
@@ -409,7 +401,6 @@ int main() {
 
     // printCoords(coords, n_vertices);
     
-    // Verificação topológica 2: interseções
     const char *erro_intersec = check_face_intersections(coords, raw_faces, n_faces);
     if (erro_intersec) {
         printf("%s\n", erro_intersec);
@@ -427,7 +418,6 @@ int main() {
     
     print_dcel_output(vertices, n_vertices, faces, n_faces, all_edges, edge_count);
 
-    // Libera memória
     for (int i = 0; i < n_faces; ++i)
         free(raw_faces[i].vertex_indices);
     free(coords);
