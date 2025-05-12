@@ -14,6 +14,7 @@ struct Vertex {
 };
 
 struct HalfEdge {
+    int id;
     Vertex *origin;           // Vértice de origem
     HalfEdge *twin;           // Half-edge oposta
     HalfEdge *next;           // Próxima half-edge na face
@@ -62,127 +63,7 @@ EdgeRecord *edge_map = NULL;
 int edge_map_size = 0;
 int edge_map_capacity = 0;
 
-void add_or_increment_edge(int u, int v) {
-    for (int i = 0; i < ec_size; ++i) {
-        if (edge_counts[i].u == u && edge_counts[i].v == v) {
-            edge_counts[i].count++;
-            return;
-        }
-    }
 
-    if (ec_size >= ec_cap) {
-        ec_cap = ec_cap ? 2 * ec_cap : 64;
-        edge_counts = realloc(edge_counts, ec_cap * sizeof(EdgeCount));
-    }
-
-    edge_counts[ec_size++] = (EdgeCount){ u, v, 1 };
-}
-
-// Após a construção da DCEL, faça:
-const char *check_edge_counts(RawFace *faces, int n_faces) {
-    for (int i = 0; i < n_faces; ++i) {
-        int nv = faces[i].n_vertices;
-        int *idx = faces[i].vertex_indices;
-        for (int j = 0; j < nv; ++j) {
-            int u = idx[j] - 1;
-            int v = idx[(j + 1) % nv] - 1;
-            add_or_increment_edge(u, v);
-        }
-    }
-
-    for (int i = 0; i < ec_size; ++i) {
-        int u = edge_counts[i].u;
-        int v = edge_counts[i].v;
-
-        // Conta quantas vezes a aresta (v → u) também aparece
-        int total = edge_counts[i].count;
-        for (int j = 0; j < ec_size; ++j) {
-            if (edge_counts[j].u == v && edge_counts[j].v == u)
-                total += edge_counts[j].count;
-        }
-
-        if (total < 2) return "aberta";
-        if (total > 2) return "nao subdivisao planar";
-    }
-
-    return NULL; // OK
-}
-
-// Armazena a semi-aresta (u → v)
-void store_edge(int u, int v, HalfEdge *edge) {
-    if (edge_map_size >= edge_map_capacity) {
-        edge_map_capacity = edge_map_capacity ? 2 * edge_map_capacity : 64;
-        edge_map = realloc(edge_map, edge_map_capacity * sizeof(EdgeRecord));
-    }
-    edge_map[edge_map_size++] = (EdgeRecord){ u, v, edge };
-}
-
-// Busca por semi-aresta (v → u), ou seja, a gêmea
-HalfEdge *find_twin(int u, int v) {
-    for (int i = 0; i < edge_map_size; ++i) {
-        if (edge_map[i].u == v && edge_map[i].v == u)
-            return edge_map[i].edge;
-    }
-    return NULL;
-}
-
-
-HalfEdge **all_edges = NULL;
-int edge_count = 0;
-int edge_capacity = 0;
-
-Face *build_dcel(Vertex *vertices, RawFace *faces, int n_faces) {
-    Face *face_list = malloc(n_faces * sizeof(Face));
-
-    for (int i = 0; i < n_faces; ++i) {
-        int nv = faces[i].n_vertices;
-        int *idx = faces[i].vertex_indices;
-
-        HalfEdge **edges = malloc(nv * sizeof(HalfEdge*));
-
-        for (int j = 0; j < nv; ++j) {
-            HalfEdge *e = calloc(1, sizeof(HalfEdge));
-            int from = idx[j] - 1;
-            int to = idx[(j + 1) % nv] - 1;
-
-            e->origin = &vertices[from];
-            vertices[from].incident_edge = e; // Opcional: qualquer uma das arestas incidentes
-
-            // Twin logic
-            HalfEdge *twin = find_twin(from, to);
-            if (twin) {
-                e->twin = twin;
-                twin->twin = e;
-            } else {
-                store_edge(from, to, e);
-            }
-
-            // Armazena globalmente
-            if (edge_count >= edge_capacity) {
-                edge_capacity = edge_capacity ? 2 * edge_capacity : 64;
-                all_edges = realloc(all_edges, edge_capacity * sizeof(HalfEdge*));
-            }
-            all_edges[edge_count++] = e;
-
-            edges[j] = e;
-        }
-
-        // Linka next/prev e cria face
-        Face *f = &face_list[i];
-        f->id = i;
-        f->outer_component = edges[0];
-
-        for (int j = 0; j < nv; ++j) {
-            edges[j]->next = edges[(j + 1) % nv];
-            edges[(j + 1) % nv]->prev = edges[j];
-            edges[j]->face = f;
-        }
-
-        free(edges);
-    }
-
-    return face_list;
-}
 
 // Função para alocar leitura segura de vértices
 Coord *read_vertices(int n) {
@@ -234,6 +115,51 @@ RawFace *read_faces(int f) {
     return faces;
 }
 
+void add_or_increment_edge(int u, int v) {
+    for (int i = 0; i < ec_size; ++i) {
+        if (edge_counts[i].u == u && edge_counts[i].v == v) {
+            edge_counts[i].count++;
+            return;
+        }
+    }
+
+    if (ec_size >= ec_cap) {
+        ec_cap = ec_cap ? 2 * ec_cap : 64;
+        edge_counts = realloc(edge_counts, ec_cap * sizeof(EdgeCount));
+    }
+
+    edge_counts[ec_size++] = (EdgeCount){ u, v, 1 };
+}
+
+const char *check_edge_counts(RawFace *faces, int n_faces) {
+    for (int i = 0; i < n_faces; ++i) {
+        int nv = faces[i].n_vertices;
+        int *idx = faces[i].vertex_indices;
+        for (int j = 0; j < nv; ++j) {
+            int u = idx[j] - 1;
+            int v = idx[(j + 1) % nv] - 1;
+            add_or_increment_edge(u, v);
+        }
+    }
+
+    for (int i = 0; i < ec_size; ++i) {
+        int u = edge_counts[i].u;
+        int v = edge_counts[i].v;
+
+        // Conta quantas vezes a aresta (v → u) também aparece
+        int total = edge_counts[i].count;
+        for (int j = 0; j < ec_size; ++j) {
+            if (edge_counts[j].u == v && edge_counts[j].v == u)
+                total += edge_counts[j].count;
+        }
+
+        if (total < 2) return "aberta";
+        if (total > 2) return "nao subdivisao planar";
+    }
+
+    return NULL; // OK
+}
+
 // Verifica se dois segmentos [p1, p2] e [q1, q2] se intersectam
 int segments_intersect(Coord p1, Coord p2, Coord q1, Coord q2) {
     int det1 = (q2.x - q1.x) * (p1.y - q1.y) - (q2.y - q1.y) * (p1.x - q1.x);
@@ -270,12 +196,12 @@ const char *check_face_intersections(Coord *vertices, RawFace *faces, int n_face
 
 
                     // Ignora segmentos que compartilham vértices
-                    // if (a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2) continue;
+                    if (a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2) continue;
 
-                    // printf("Segmento 1:(%d,%d) (%d,%d)  Segmento 2:(%d,%d) (%d,%d)",  vertices[a1].x, vertices[a1].y, vertices[a2].x, vertices[a2].y, vertices[b1].x, vertices[b1].y, vertices[b2].x, vertices[b2].y );
                     int zz = segments_intersect(vertices[a1], vertices[a2], vertices[b1], vertices[b2]);
-
+                    
                     if (zz) {
+                        // printf("Segmento 1:(%d,%d) (%d,%d)  Segmento 2:(%d,%d) (%d,%d)",  vertices[a1].x, vertices[a1].y, vertices[a2].x, vertices[a2].y, vertices[b1].x, vertices[b1].y, vertices[b2].x, vertices[b2].y );
                         // printf("%d\n", zz);
                         return "superposta";
                     }
@@ -309,54 +235,6 @@ void print_faces(Face *faces, int n) {
 }
 
 
-
-void print_dcel_output(Vertex *vertices, int n, Face *faces, int f, HalfEdge **halfedges, int edge_count) {
-    int m = edge_count / 2;  // número de arestas (não semi-arestas)
-
-    // === 1. Cabeçalho: n m f ===
-    printf("%d %d %d\n", n, m, f);
-
-    // === 2. Vértices ===
-    for (int i = 0; i < n; ++i) {
-        int edge_idx = -1;
-        for (int j = 0; j < edge_count; ++j) {
-            if (halfedges[j]->origin == &vertices[i]) {
-                edge_idx = j + 1;  // saída é 1-based
-                break;
-            }
-        }
-        printf("%d %d %d\n", vertices[i].x, vertices[i].y, edge_idx);
-    }
-
-    // === 3. Faces ===
-    for (int i = 0; i < f; ++i) {
-        int edge_idx = -1;
-        for (int j = 0; j < edge_count; ++j) {
-            if (halfedges[j]->face == &faces[i]) {
-                edge_idx = j + 1;
-                break;
-            }
-        }
-        printf("%d\n", edge_idx);
-    }
-
-    // === 4. Semi-arestas ===
-    for (int i = 0; i < edge_count; ++i) {
-        HalfEdge *e = halfedges[i];
-        int origin = e->origin ? e->origin->id + 1 : 0;
-        int twin = -1, face = -1, next = -1, prev = -1;
-
-        for (int j = 0; j < edge_count; ++j) {
-            if (halfedges[j] == e->twin) twin = j + 1;
-            if (halfedges[j] == e->next) next = j + 1;
-            if (halfedges[j] == e->prev) prev = j + 1;
-            if (e->face && halfedges[j]->face == e->face) face = e->face->id + 1;
-        }
-
-        printf("%d %d %d %d %d\n", origin, twin, face, next, prev);
-    }
-}
-
 void printRawFaces(RawFace *RawFace, int n_faces)
 {
     for(int i = 0 ; i < n_faces; i++)
@@ -377,6 +255,133 @@ void printCoords(Coord *coords, int n_vertices)
         printf("V%d: (%d, %d)\n", i+1, coords[i].x, coords[i].y );
     }
 }
+
+void set_incident_edges_by_angle(Vertex *vertices, int n_vertices, HalfEdge **all_edges, int edge_count) {
+    for (int i = 0; i < n_vertices; ++i) {
+        Vertex *v = &vertices[i];
+        double min_angle = 3.14 * 2;  // Initialize with a large value
+        HalfEdge *best = NULL;
+
+        for (int j = 0; j < edge_count; ++j) {
+            HalfEdge *he = all_edges[j];
+            if (he->origin != v) continue;
+
+            // Calculate vector from vertex to next vertex in half-edge
+            int dx = he->next->origin->x - v->x;
+            int dy = he->next->origin->y - v->y;
+
+            // Calculate angle using dot product and magnitude
+            double dot_product = v->x * dx + v->y * dy;
+            double magnitude_v = sqrt(v->x * v->x + v->y * v->y);
+            double magnitude_he = sqrt(dx * dx + dy * dy);
+            double angle = acos(dot_product / (magnitude_v * magnitude_he));
+
+            // Check if angle is smaller than current minimum
+            if (angle < min_angle) {
+                min_angle = angle;
+                best = he;
+            }
+        }
+
+        if (best) v->incident_edge = best;
+    }
+}
+
+Face *build_dcel(Vertex *vertices, RawFace *raw_faces, int n_faces, HalfEdge **all_edges, int *edge_count, int n_vertices) {
+    Face *faces = malloc(n_faces * sizeof(Face));
+    int e_id = 1;  // IDs iniciam em 1
+
+    for (int i = 0; i < n_faces; ++i) {
+        faces[i].id = i + 1;
+        faces[i].outer_component = NULL;
+        int nv = raw_faces[i].n_vertices;
+        int *idx = raw_faces[i].vertex_indices;
+        
+        // printf("face: %d, Vertices:%d\n", faces[i].id, nv);
+        HalfEdge **face_edges = malloc(nv * sizeof(HalfEdge*));
+
+        for (int j = 0; j < nv; ++j) {
+            HalfEdge *he = malloc(sizeof(HalfEdge));
+            he->id = e_id++;
+            he->origin = &vertices[idx[j] - 1];
+            he->face = &faces[i];
+            he->twin = NULL;
+            he->next = NULL;
+            he->prev = NULL;
+            face_edges[j] = he;
+            // printf("Vertice id:%d  ",idx[j]);
+            // printf("Aresta:%d Origem:%d Face:%d\n", he->id, he->origin->id, he->face->id);
+
+            
+            all_edges[*edge_count] = he;
+            (*edge_count)++;
+        }
+
+
+
+        for (int j = 0; j < nv; ++j) {
+            face_edges[j]->next = face_edges[(j + 1) % nv];
+            face_edges[(j + 1) % nv]->prev = face_edges[j];
+        }
+
+        faces[i].outer_component = face_edges[0];
+        free(face_edges);
+    }
+
+    // Conectar twins
+    for (int i = 0; i < *edge_count; ++i) {
+        HalfEdge *e1 = all_edges[i];
+        if (e1->twin) continue;
+
+        for (int j = i + 1; j < *edge_count; ++j) {
+            HalfEdge *e2 = all_edges[j];
+            if (e2->twin) continue;
+
+            if (e1->origin == e2->next->origin &&
+                e2->origin == e1->next->origin) {
+                e1->twin = e2;
+                e2->twin = e1;
+                break;
+            }
+        }
+    }
+
+    int count = *edge_count;
+
+    set_incident_edges_by_angle(vertices, n_vertices, all_edges, count);
+
+    return faces;
+}
+
+void print_dcel_output(Vertex *vertices, int n_vertices,
+                       Face *faces, int n_faces,
+                       HalfEdge **edges, int edge_count) {
+    int m = edge_count / 2;
+    printf("%d %d %d\n", n_vertices, m, n_faces);
+
+    // Imprime vértices
+    for (int i = 0; i < n_vertices; ++i) {
+        int he_id = vertices[i].incident_edge ? vertices[i].incident_edge->id : -1;
+        printf("%d %d %d\n", vertices[i].x, vertices[i].y, he_id);
+    }
+
+    // Imprime faces
+    for (int i = 0; i < n_faces; ++i) {
+        printf("%d\n", faces[i].outer_component->id);
+    }
+
+    // Imprime semi-arestas
+    for (int i = 0; i < edge_count; ++i) {
+        HalfEdge *he = edges[i];
+        int origin_id = he->origin->id + 1;
+        int twin_id = he->twin ? he->twin->id : -1;
+        int face_id = he->face ? he->face->id : -1;
+        int next_id = he->next ? he->next->id : -1;
+        int prev_id = he->prev ? he->prev->id : -1;
+        printf("%d %d %d %d %d\n", origin_id, twin_id, face_id, next_id, prev_id);
+    }
+}
+
 
 int main() {
     int n_vertices, n_faces;
@@ -403,7 +408,6 @@ int main() {
     }
 
     // printCoords(coords, n_vertices);
-    // printRawFaces(raw_faces, n_faces);
     
     // Verificação topológica 2: interseções
     const char *erro_intersec = check_face_intersections(coords, raw_faces, n_faces);
@@ -412,12 +416,16 @@ int main() {
         return 1;
     }
     
-    // // Construção da DCEL
-    Face *faces_dcel = build_dcel(vertices, raw_faces, n_faces);
-    // print_faces(faces_dcel, n_faces);
+    int max_half_edges = 2 * n_faces * 10;  // número máximo aproximado
+    HalfEdge **all_edges = malloc(max_half_edges * sizeof(HalfEdge*));
+    int edge_count = 0;
+    
+    // print_vertices(vertices, n_vertices);
+    // printRawFaces(raw_faces, n_faces);
 
-    // // Impressão da DCEL
-    print_dcel_output(vertices, n_vertices, faces_dcel, n_faces, all_edges, edge_count);
+    Face *faces = build_dcel(vertices, raw_faces, n_faces, all_edges, &edge_count, n_vertices);
+    
+    print_dcel_output(vertices, n_vertices, faces, n_faces, all_edges, edge_count);
 
     // Libera memória
     for (int i = 0; i < n_faces; ++i)
@@ -428,6 +436,8 @@ int main() {
     free(vertices);
     free(edge_map);
     free(edge_counts);
+    free(faces);
     free(all_edges);
     return 0;
 }
+
